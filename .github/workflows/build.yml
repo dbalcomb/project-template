@@ -22,5 +22,26 @@ jobs:
         override: true
     - uses: actions-rs/cargo@v1
       with:
+        command: generate-lockfile
+    - uses: actions/cache@v1
+      with:
+        path: ~/.cargo/registry
+        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-registry-
+    - uses: actions/cache@v1
+      with:
+        path: ~/.cargo/git
+        key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-git-
+    - uses: actions/cache@v1
+      with:
+        path: target/release
+        key: ${{ runner.os }}-target-release-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-target-release-
+    - uses: actions-rs/cargo@v1
+      with:
         command: build
         args: --workspace --release
