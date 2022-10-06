@@ -117,19 +117,32 @@ jobs:
     - id: archive
       name: Archive
       run: |
+        prefix="${{ needs.create.outputs.name }}-${{ needs.create.outputs.version }}-${{ matrix.target }}"
+        staging="$RUNNER_TEMP/$prefix"
+
+        mkdir $staging
+        cp {README.md,LICENSE-APACHE,LICENSE-MIT} "$staging/"
+
         if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-          asset_name="${{ needs.create.outputs.name }}-${{ needs.create.outputs.version }}-${{ matrix.target }}.zip"
+          asset_name="$prefix.zip"
+          asset_path="$RUNNER_TEMP/$asset_name"
           asset_type="application/zip"
 
-          7z a "$asset_name" "target/${{ matrix.target }}/release/${{ needs.create.outputs.name }}.exe"
+          cp "target/${{ matrix.target }}/release/${{ needs.create.outputs.name }}.exe" "$staging/"
+          cd $RUNNER_TEMP
+          7z a "$asset_name" "$prefix"
         else
-          asset_name="${{ needs.create.outputs.name }}-${{ needs.create.outputs.version }}-${{ matrix.target }}.tar.gz"
+          asset_name="$prefix.tar.gz"
+          asset_path="$RUNNER_TEMP/$asset_name"
           asset_type="application/gzip"
 
-          tar -czf "$asset_name" "target/${{ matrix.target }}/release/${{ needs.create.outputs.name }}"
+          cp "target/${{ matrix.target }}/release/${{ needs.create.outputs.name }}" "$staging/"
+          cd $RUNNER_TEMP
+          tar -czf "$asset_name" "$prefix"
         fi
 
         echo "::set-output name=asset_name::$asset_name"
+        echo "::set-output name=asset_name::$asset_path"
         echo "::set-output name=asset_type::$asset_type"
       shell: bash
 
@@ -138,7 +151,7 @@ jobs:
       with:
         upload_url: ${{ needs.create.outputs.upload_url }}
         asset_name: ${{ steps.archive.outputs.asset_name }}
-        asset_path: ${{ steps.archive.outputs.asset_name }}
+        asset_path: ${{ steps.archive.outputs.asset_path }}
         asset_content_type: ${{ steps.archive.outputs.asset_type }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
