@@ -1,0 +1,164 @@
+name: Release
+
+on:
+  push:
+    tags:
+    - "[0-9]+.[0-9]+.[0-9]+"
+    - "*/[0-9]+.[0-9]+.[0-9]+"
+
+jobs:
+  create:
+    name: Create
+    runs-on: ubuntu-latest
+
+    outputs:
+      name: ${{ steps.prepare.outputs.name }}
+      version: ${{ steps.prepare.outputs.version }}
+      lib: ${{ steps.prepare.outputs.lib }}
+      bin: ${{ steps.prepare.outputs.bin }}
+      upload_url: ${{ steps.release.outputs.upload_url }}
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+
+    - name: Setup
+      uses: dtolnay/rust-toolchain@master
+      with:
+        targets: x86_64-unknown-linux-gnu
+        toolchain: stable
+
+    - id: prepare
+      name: Prepare
+      run: |
+        metadata=$(cargo metadata --no-deps --format-version 1)
+        crate="${GITHUB_REPOSITORY#$GITHUB_REPOSITORY_OWNER/}"
+        IFS='/' read -ra arr <<< "$GITHUB_REF_NAME"
+
+        if [[ -n "${arr[1]}" ]]; then
+          crate_name="$crate-${arr[0]}"
+          crate_version="${arr[1]}"
+          crate_exists=$(echo $metadata | jq -r --arg name $crate_name ".packages | map(.targets[]) | any(.name == \$name)")
+
+          if [[ $crate_exists != "true" ]]; then
+            crate_name="${arr[0]}"
+          fi
+
+          release_name="${arr[0]} $crate_version"
+        else
+          crate_name="$crate"
+          crate_version="${arr[0]}"
+          release_name="$crate_version"
+        fi
+
+        crate_ok=$(echo $metadata | jq -r --arg name $crate_name --arg version $crate_version ".packages | select(map(.targets[]) | any(.name == \$name)) | any(.version == \$version)")
+
+        if [[ $crate_ok != "true" ]]; then
+          exit 1
+        fi
+
+        crate_bin=$(echo $metadata | jq -r --arg name $crate_name ".packages | map(.targets[]) | map(select(.kind | contains([\"bin\"]))) | any(.name == \$name)")
+        crate_lib=$(echo $metadata | jq -r --arg name $crate_name ".packages | map(.targets[]) | map(select(.kind | contains([\"lib\"]))) | any(.name == \$name)")
+
+        echo "::set-output name=name::$crate_name"
+        echo "::set-output name=version::$crate_version"
+        echo "::set-output name=bin::$crate_bin"
+        echo "::set-output name=lib::$crate_lib"
+        echo "::set-output name=release_name::$release_name"
+      shell: bash
+
+    - id: release
+      name: Create
+      uses: actions/create-release@v1
+      with:
+        tag_name: ${{ env.GITHUB_REF_NAME }}
+        release_name: ${{ steps.prepare.outputs.release_name }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build:
+    name: Build (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    needs: create
+    if: ${{ needs.create.outputs.bin }}
+
+    strategy:
+      matrix:
+        include:
+        - label: Linux
+          target: x86_64-unknown-linux-gnu
+          toolchain: stable
+          os: ubuntu-latest
+
+        - label: macOS
+          target: x86_64-apple-darwin
+          toolchain: stable
+          os: macos-latest
+
+        - label: Windows
+          target: x86_64-pc-windows-msvc
+          toolchain: stable
+          os: windows-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+
+    - name: Setup
+      uses: dtolnay/rust-toolchain@master
+      with:
+        targets: ${{ matrix.target }}
+        toolchain: ${{ matrix.toolchain }}
+
+    - name: Build
+      run: cargo build --release --target ${{ matrix.target }}
+      shell: bash
+
+    - id: archive
+      name: Archive
+      run: |
+        if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+          asset_name="${{ needs.create.outputs.name }}-${{ needs.create.outputs.version }}-${{ matrix.target }}.zip"
+          asset_type="application/zip"
+
+          7z a "$asset_name" "target/${{ matrix.target }}/release/${{ needs.create.outputs.name }}.exe"
+        else
+          asset_name="${{ needs.create.outputs.name }}-${{ needs.create.outputs.version }}-${{ matrix.target }}.tar.gz"
+          asset_type="application/gzip"
+
+          tar -czf "$asset_name" "target/${{ matrix.target }}/release/${{ needs.create.outputs.name }}"
+        fi
+
+        echo "::set-output name=asset_name::$asset_name"
+        echo "::set-output name=asset_type::$asset_type"
+      shell: bash
+
+    - name: Upload
+      uses: actions/upload-release-asset@v1.0.2
+      with:
+        upload_url: ${{ needs.create.outputs.upload_url }}
+        asset_name: ${{ steps.archive.outputs.asset_name }}
+        asset_path: ${{ steps.archive.outputs.asset_name }}
+        asset_content_type: ${{ steps.archive.outputs.asset_type }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish:
+    name: Publish
+    runs-on: ubuntu-latest
+    needs: create
+    if: ${{ needs.create.outputs.lib }}
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+
+    - name: Setup
+      uses: dtolnay/rust-toolchain@master
+      with:
+        targets: x86_64-unknown-linux-gnu
+        toolchain: stable
+
+    - name: Publish
+      run: cargo publish --package ${{ needs.create.outputs.name }} --dry-run
+      shell: bash
