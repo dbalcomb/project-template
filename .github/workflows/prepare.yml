@@ -81,7 +81,7 @@ jobs:
         commit-message: "Prepare release"
         delete-branch: true
         add-paths: |
-          **/Cargo.toml
-          **/Cargo.lock
+          Cargo.toml
+          Cargo.lock
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
