@@ -28,6 +28,11 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v3
 
+    - name: Install
+      uses: taiki-e/install-action@v1
+      with:
+        tool: cargo-edit
+
     - id: config
       name: Config
       run: |
