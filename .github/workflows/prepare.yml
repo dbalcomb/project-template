@@ -49,6 +49,7 @@ jobs:
         fi
 
         cargo set-version --package "$pkg_name" --bump "$pkg_bump"
+        cargo check --package "$pkg_name"
 
         metadata=$(cargo metadata --no-deps --format-version 1)
         pkg_vers=$(echo $metadata | jq -r --arg name $pkg_name ".packages | map(select(.name == \$name))[0] | .version")
