@@ -16,9 +16,9 @@ on:
         required: true
         type: choice
         options:
-        - major
-        - minor
         - patch
+        - minor
+        - major
 
 jobs:
   pull_request:
