@@ -83,3 +83,10 @@ jobs:
         delete-branch: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Workflow Dispatch
+      uses: benc-uk/workflow-dispatch@v1
+      with:
+        workflow: CI
+        ref: ${{ steps.config.outputs.branch }}
+        token: ${{ secrets.GITHUB_TOKEN }}
