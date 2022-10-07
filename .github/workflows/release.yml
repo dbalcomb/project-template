@@ -28,6 +28,11 @@ jobs:
         targets: x86_64-unknown-linux-gnu
         toolchain: stable
 
+    - name: Install
+      uses: taiki-e/install-action@v1
+      with:
+        tool: parse-changelog
+
     - id: prepare
       name: Prepare
       run: |
@@ -77,12 +82,31 @@ jobs:
         echo "::set-output name=release_name::$release_name"
       shell: bash
 
+    - id: changelog
+      name: Changelog
+      run: |
+        metadata=$(cargo metadata --no-deps --format-version 1)
+        pkg_name="${{ steps.prepare.outputs.name }}"
+        pkg_vers="${{ steps.prepare.outputs.version }}"
+        pkg_data=$(echo $metadata | jq --arg name $pkg_name ".packages | map(select(.name == \$name))[0]")
+        pkg_path=$(echo $pkg_data | jq -r ".manifest_path")
+        changelog_path="$(dirname $pkg_path)/CHANGELOG.md"
+        body=$(parse-changelog "$changelog_path" "$pkg_vers" || echo "")
+        body=$(printf '%s' "$body" | sed "/\[$pkg_vers]:/d")
+        body="${body//'%'/'%25'}"
+        body="${body//$'\n'/'%0A'}"
+        body="${body//$'\r'/'%0D'}"
+
+        echo "::set-output name=body::$body"
+      shell: bash
+
     - id: release
       name: Create
       uses: actions/create-release@v1
       with:
         tag_name: ${{ github.ref_name }}
         release_name: ${{ steps.prepare.outputs.release_name }}
+        body: ${{ steps.changelog.output.body }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
