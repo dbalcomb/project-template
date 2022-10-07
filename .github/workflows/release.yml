@@ -32,38 +32,48 @@ jobs:
       name: Prepare
       run: |
         metadata=$(cargo metadata --no-deps --format-version 1)
-        crate="${GITHUB_REPOSITORY#$GITHUB_REPOSITORY_OWNER/}"
+        pkg="${GITHUB_REPOSITORY#$GITHUB_REPOSITORY_OWNER/}"
         IFS='/' read -ra arr <<< "$GITHUB_REF_NAME"
 
         if [[ -n "${arr[1]}" ]]; then
-          crate_name="$crate-${arr[0]}"
-          crate_version="${arr[1]}"
-          crate_exists=$(echo $metadata | jq -r --arg name $crate_name ".packages | map(.targets[]) | any(.name == \$name)")
+          pkg_name="$pkg-${arr[0]}"
+          pkg_version="${arr[1]}"
+          pkg_exists=$(echo $metadata | jq -r --arg name $pkg_name ".packages | any(.name == \$name)")
 
-          if [[ $crate_exists != "true" ]]; then
-            crate_name="${arr[0]}"
+          if [[ $pkg_exists != "true" ]]; then
+            pkg_name="${arr[0]}"
           fi
 
-          release_name="${arr[0]} $crate_version"
+          release_name="${arr[0]} $pkg_version"
         else
-          crate_name="$crate"
-          crate_version="${arr[0]}"
-          release_name="$crate_version"
+          pkg_name="$pkg"
+          pkg_version="${arr[0]}"
+          release_name="$pkg_version"
         fi
 
-        crate_ok=$(echo $metadata | jq -r --arg name $crate_name --arg version $crate_version ".packages | select(map(.targets[]) | any(.name == \$name)) | any(.version == \$version)")
+        pkg_ok=$(echo $metadata | jq -r --arg name $pkg_name ".packages | any(.name == \$name)")
 
-        if [[ $crate_ok != "true" ]]; then
+        if [[ $pkg_ok != "true" ]]; then
+          echo "Package '$pkg_name' was not found."
           exit 1
         fi
 
-        crate_bin=$(echo $metadata | jq -r --arg name $crate_name ".packages | map(.targets[]) | map(select(.kind | contains([\"bin\"]))) | any(.name == \$name)")
-        crate_lib=$(echo $metadata | jq -r --arg name $crate_name ".packages | map(.targets[]) | map(select(.kind | contains([\"lib\"]))) | any(.name == \$name)")
+        pkg_ok=$(echo $metadata | jq -r --arg name $pkg_name --arg version $pkg_version ".packages | any(.name == \$name and .version == \$version)")
 
-        echo "::set-output name=name::$crate_name"
-        echo "::set-output name=version::$crate_version"
-        echo "::set-output name=bin::$crate_bin"
-        echo "::set-output name=lib::$crate_lib"
+        if [[ $pkg_ok != "true" ]]; then
+          expected_version=$(echo $metadata | jq -r --arg name $pkg_name ".packages | map(select(.name == \$name))[0] | .version")
+
+          echo "Package '$pkg_name' has version '$expected_version' but expected '$pkg_version'."
+          exit 1
+        fi
+
+        pkg_bin=$(echo $metadata | jq -r --arg name $pkg_name ".packages | map(select(.name == \$name))[0] | .targets | any(.kind | contains([\"bin\"]))")
+        pkg_lib=$(echo $metadata | jq -r --arg name $pkg_name ".packages | map(select(.name == \$name))[0] | .targets | any(.kind | contains([\"lib\"]))")
+
+        echo "::set-output name=name::$pkg_name"
+        echo "::set-output name=version::$pkg_version"
+        echo "::set-output name=bin::$pkg_bin"
+        echo "::set-output name=lib::$pkg_lib"
         echo "::set-output name=release_name::$release_name"
       shell: bash
 
@@ -110,8 +120,26 @@ jobs:
         targets: ${{ matrix.target }}
         toolchain: ${{ matrix.toolchain }}
 
-    - name: Build
-      run: cargo build --release --target ${{ matrix.target }}
+    - id: build
+      name: Build
+      run: |
+        metadata=$(cargo metadata --no-deps --format-version 1)
+        pkg_name="${{ needs.create.outputs.name }}"
+
+        pkg=$(echo $metadata | jq --arg name $pkg_name ".packages | map(select(.name == \$name))[0]")
+        bins=$(echo $pkg | jq ".targets | map(select(.kind | contains([\"bin\"])))")
+        lines=$(echo $bins | jq -r ".[] | .name + \":\" + (.[\"required-features\"] | . // [] | join(\" \"))")
+        names=$(echo $pkg | jq -r ".targets | map(select(.kind | contains([\"bin\"]))) | map(.name) | join(\" \")")
+
+        if [[ -n $lines ]]; then
+          while IFS= read -r line; do
+            IFS=':' read -ra args <<< "$line"
+
+            cargo build --release --target ${{ matrix.target }} --package "$pkg_name" --bin "${args[0]}" --features "${args[1]}"
+          done <<< "$lines"
+        fi
+
+        echo "::set-output name=names::$names"
       shell: bash
 
     - id: archive
@@ -119,6 +147,8 @@ jobs:
       run: |
         prefix="${{ needs.create.outputs.name }}-${{ needs.create.outputs.version }}-${{ matrix.target }}"
         staging="$RUNNER_TEMP/$prefix"
+
+        IFS=' ' read -a bins <<< "${{ steps.build.outputs.names }}"
 
         mkdir $staging
         cp {README.md,LICENSE-APACHE,LICENSE-MIT} "$staging/"
@@ -128,7 +158,10 @@ jobs:
           asset_path="$RUNNER_TEMP/$asset_name"
           asset_type="application/zip"
 
-          cp "target/${{ matrix.target }}/release/${{ needs.create.outputs.name }}.exe" "$staging/"
+          for bin in "${bins[@]}"; do
+            cp "target/${{ matrix.target }}/release/$bin.exe" "$staging/"
+          done
+
           cd $RUNNER_TEMP
           7z a "$asset_name" "$prefix"
         else
@@ -136,7 +169,10 @@ jobs:
           asset_path="$RUNNER_TEMP/$asset_name"
           asset_type="application/gzip"
 
-          cp "target/${{ matrix.target }}/release/${{ needs.create.outputs.name }}" "$staging/"
+          for bin in "${bins[@]}"; do
+            cp "target/${{ matrix.target }}/release/$bin" "$staging/"
+          done
+
           cd $RUNNER_TEMP
           tar -czf "$asset_name" "$prefix"
         fi
