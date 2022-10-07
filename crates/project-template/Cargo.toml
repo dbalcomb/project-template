@@ -8,6 +8,11 @@ license = "MIT OR Apache-2.0"
 edition = "2021"
 autobins = false
 
+[features]
+default = []
+cli = []
+other = []
+
 [[bin]]
 name = "project-template"
 path = "src/main.rs"
@@ -15,3 +20,4 @@ path = "src/main.rs"
 [[bin]]
 name = "project-template-cli"
 path = "src/bin/cli.rs"
+required-features = ["cli", "other"]
