@@ -1,0 +1,20 @@
+name: PR
+
+on:
+  pull_request:
+    types:
+    - closed
+
+jobs:
+  merged:
+    name: Merged
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.merged == true
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+
+    - name: Run
+      run: printenv
+      shell: bash
