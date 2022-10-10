@@ -56,10 +56,10 @@ jobs:
         pkg_short="${pkg_name#$repo-}"
 
         if [[ "$pkg_short" == "$pkg_name" ]]; then
-          branch="prepare/$pkg_vers"
+          branch="release/$pkg_vers"
           title="Release $pkg_vers"
         else
-          branch="prepare/$pkg_short/$pkg_vers"
+          branch="release/$pkg_short/$pkg_vers"
           title="Release $pkg_short $pkg_verse"
         fi
 
