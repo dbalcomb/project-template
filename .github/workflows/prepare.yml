@@ -60,7 +60,7 @@ jobs:
           title="Release $pkg_vers"
         else
           branch="release/$pkg_short/$pkg_vers"
-          title="Release $pkg_short $pkg_verse"
+          title="Release $pkg_short $pkg_vers"
         fi
 
         echo "::set-output name=branch::$branch"
